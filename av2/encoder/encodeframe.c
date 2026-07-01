@@ -783,7 +783,7 @@ static AVM_INLINE void encode_rd_sb(AV2_COMP *cpi, ThreadData *td,
   } else if (sf->part_sf.partition_search_type == VAR_BASED_PARTITION) {
     av2_set_offsets(cpi, tile_info, x, mi_row, mi_col, sb_size, NULL);
     const BLOCK_SIZE bsize = sb_size;
-    av1_choose_var_based_partitioning(cpi, tile_info, x, mi_row, mi_col);
+    av2_choose_var_based_partitioning(cpi, tile_info, x, mi_row, mi_col);
     for (int loop_idx = 0; loop_idx < total_loop_num; loop_idx++) {
       const int plane_start = get_partition_plane_start(xd->tree_type);
       const int plane_end = get_partition_plane_end(xd->tree_type, num_planes);
