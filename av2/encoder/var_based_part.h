@@ -58,7 +58,7 @@ extern "C" {
  * temporal variance flag and the color sensitivity flag (both used in
  * nonrd_pickmode).
  */
-int av1_choose_var_based_partitioning(AV2_COMP *cpi, const TileInfo *const tile,
+int av2_choose_var_based_partitioning(AV2_COMP *cpi, const TileInfo *const tile,
                                       MACROBLOCK *x, int mi_row, int mi_col);
 
 #ifdef __cplusplus

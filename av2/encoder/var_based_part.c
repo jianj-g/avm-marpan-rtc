@@ -549,7 +549,7 @@ static void setup_planes(AV2_COMP *cpi, MACROBLOCK *x, unsigned int *y_sad,
   }
 }
 
-int av1_choose_var_based_partitioning(AV2_COMP *cpi, const TileInfo *const tile,
+int av2_choose_var_based_partitioning(AV2_COMP *cpi, const TileInfo *const tile,
                                       MACROBLOCK *x, int mi_row, int mi_col) {
   AV2_COMMON *const cm = &cpi->common;
   MACROBLOCKD *xd = &x->e_mbd;
