@@ -414,6 +414,7 @@ static inline void set_vbp_thresholds(AV2_COMP *cpi, int64_t thresholds[],
 
   if (is_key_frame) {
     set_vbp_thresholds_key_frame(thresholds, threshold_base, num_pixels);
+    thresholds[4] = INT64_MAX;
     return;
   }
 
@@ -425,7 +426,6 @@ static inline void set_vbp_thresholds(AV2_COMP *cpi, int64_t thresholds[],
 
   tune_thresh_based_on_resolution(cpi, thresholds, threshold_base,
                                   current_qindex, num_pixels);
-
   // TODO(any, marpan): add adjustments/tunings based on QP and content.
 }
 
