@@ -603,6 +603,9 @@ static void set_rt_speed_features_framesize_independent(
     sf->inter_sf.use_first_reference_only = true;
     sf->intra_sf.use_only_dc_intra_interframe = true;
     sf->inter_sf.prune_ref_frames = 0;
+    sf->mv_sf.search_method = DIAMOND;
+    sf->winner_mode_sf.tx_size_search_level = USE_LARGESTALL;
+    sf->rd_sf.tx_domain_dist_thres_level = 2;
   }
 }
 
