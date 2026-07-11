@@ -592,7 +592,7 @@ static void set_rt_speed_features_framesize_independent(
   set_good_speed_features_framesize_independent(cpi, sf, speed);
   if (speed >= 6) {
     // TODO(any, marpan): update speed features for realtime mode.
-    sf->part_sf.use_nonrd_partition = 0;
+    sf->part_sf.use_nonrd_partition = 1;
     sf->part_sf.partition_search_type = VAR_BASED_PARTITION;
     sf->hl_sf.frame_parameter_update = 0;
     sf->hl_sf.recode_loop = DISALLOW_RECODE;
