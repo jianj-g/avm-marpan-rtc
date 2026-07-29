@@ -642,16 +642,18 @@ static void set_rt_speed_features_framesize_independent(
   // Set this good features as default for now.
   set_good_speed_features_framesize_independent(cpi, sf, speed);
   if (speed >= 6) {
-    sf->part_sf.partition_search_type = VAR_BASED_PARTITION;
+    sf->inter_sf.prune_ref_frames = 0;
+    sf->intra_sf.intra_pruning_with_mlp = 0;
     sf->hl_sf.frame_parameter_update = 0;
     sf->hl_sf.recode_loop = DISALLOW_RECODE;
     sf->lpf_sf.lpf_pick = LPF_PICK_FROM_Q;
     sf->lpf_sf.cdef_pick_method = CDEF_PICK_FROM_Q;
-    sf->rt_sf.use_only_dc_intra_interframe = true;
-    sf->inter_sf.prune_ref_frames = 0;
     sf->mv_sf.search_method = DIAMOND;
-    sf->winner_mode_sf.tx_size_search_level = USE_LARGESTALL;
+    sf->part_sf.partition_pruning_with_mlp = 0;
+    sf->part_sf.partition_search_type = VAR_BASED_PARTITION;
     sf->rd_sf.tx_domain_dist_thres_level = 2;
+    sf->rt_sf.use_only_dc_intra_interframe = true;
+    sf->winner_mode_sf.tx_size_search_level = USE_LARGESTALL;
   }
 }
 
@@ -1019,7 +1021,7 @@ void av2_set_speed_features_framesize_dependent(AV2_COMP *cpi, int speed) {
   SPEED_FEATURES *const sf = &cpi->sf;
   const AV2EncoderConfig *const oxcf = &cpi->oxcf;
 
-  if (oxcf->mode == GOOD) {
+  if (oxcf->mode == GOOD || oxcf->mode == REALTIME) {
     set_good_speed_feature_framesize_dependent(cpi, sf, speed);
   }
 

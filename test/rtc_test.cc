@@ -90,6 +90,8 @@ class RtcTestLarge : public ::libavm_test::CodecTestWithParam<int>,
       encoder->Control(AV2E_SET_COEFF_COST_UPD_FREQ, 2);
       encoder->Control(AV2E_SET_MODE_COST_UPD_FREQ, 2);
       encoder->Control(AV2E_SET_MV_COST_UPD_FREQ, 3);
+      encoder->SetOption("enable-mhccp", "0");
+      encoder->SetOption("enable-extended-sdp", "0");
     }
   }
 

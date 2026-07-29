@@ -2184,9 +2184,17 @@ static void build_one_split_tree(AV2_COMMON *const cm, TREE_TYPE tree_type,
                                  int mi_row, int mi_col, BLOCK_SIZE bsize,
                                  BLOCK_SIZE final_bsize, PARTITION_TREE *ptree,
                                  const PARTITION_TREE *ptree_luma) {
+  CommonModeInfoParams *mi_params = &cm->mi_params;
   assert(block_size_high[bsize] == block_size_wide[bsize]);
   if (mi_row >= cm->mi_params.mi_rows || mi_col >= cm->mi_params.mi_cols)
     return;
+
+  int final_bsize_local = final_bsize;
+  const int mi_grid_idx = get_mi_grid_idx(mi_params, mi_row, mi_col);
+  const int mi_alloc_idx = get_alloc_mi_idx(mi_params, mi_row, mi_col);
+  MB_MODE_INFO *mi = mi_params->mi_grid_base[mi_grid_idx] =
+      &mi_params->mi_alloc[mi_alloc_idx];
+  final_bsize_local = mi->sb_type[PLANE_TYPE_Y];
 
   const int ss_x = cm->seq_params.subsampling_x;
   const int ss_y = cm->seq_params.subsampling_y;
@@ -2233,8 +2241,8 @@ static void build_one_split_tree(AV2_COMMON *const cm, TREE_TYPE tree_type,
     if (implied_first_partition != PARTITION_INVALID) {
       first_partition = implied_first_partition;
     } else if (partition_allowed[PARTITION_NONE] &&
-               (block_size_wide[bsize] <= block_size_wide[final_bsize]) &&
-               (block_size_high[bsize] <= block_size_high[final_bsize])) {
+               (block_size_wide[bsize] <= block_size_wide[final_bsize_local]) &&
+               (block_size_high[bsize] <= block_size_high[final_bsize_local])) {
       first_partition = PARTITION_NONE;
     } else if (partition_allowed[PARTITION_SPLIT]) {
       first_partition = PARTITION_SPLIT;
@@ -2265,17 +2273,17 @@ static void build_one_split_tree(AV2_COMMON *const cm, TREE_TYPE tree_type,
     ptree->sub_tree[1] = av2_alloc_ptree_node(ptree, 1);
     ptree->sub_tree[2] = av2_alloc_ptree_node(ptree, 2);
     ptree->sub_tree[3] = av2_alloc_ptree_node(ptree, 3);
-    build_one_split_tree(cm, tree_type, mi_row, mi_col, subsize, final_bsize,
-                         ptree->sub_tree[0],
+    build_one_split_tree(cm, tree_type, mi_row, mi_col, subsize,
+                         final_bsize_local, ptree->sub_tree[0],
                          track_ptree_luma ? ptree_luma->sub_tree[0] : NULL);
     build_one_split_tree(cm, tree_type, mi_row, mi_col + hbs_w, subsize,
-                         final_bsize, ptree->sub_tree[1],
+                         final_bsize_local, ptree->sub_tree[1],
                          track_ptree_luma ? ptree_luma->sub_tree[1] : NULL);
     build_one_split_tree(cm, tree_type, mi_row + hbs_h, mi_col, subsize,
-                         final_bsize, ptree->sub_tree[2],
+                         final_bsize_local, ptree->sub_tree[2],
                          track_ptree_luma ? ptree_luma->sub_tree[2] : NULL);
     build_one_split_tree(cm, tree_type, mi_row + hbs_h, mi_col + hbs_w, subsize,
-                         final_bsize, ptree->sub_tree[3],
+                         final_bsize_local, ptree->sub_tree[3],
                          track_ptree_luma ? ptree_luma->sub_tree[3] : NULL);
     return;
   }
@@ -2347,39 +2355,39 @@ static void build_one_split_tree(AV2_COMMON *const cm, TREE_TYPE tree_type,
   if (first_partition == PARTITION_HORZ) {
     assert(second_partition == PARTITION_VERT);
     build_one_split_tree(
-        cm, tree_type, mi_row, mi_col, subsize, final_bsize,
+        cm, tree_type, mi_row, mi_col, subsize, final_bsize_local,
         ptree->sub_tree[0]->sub_tree[0],
         track_subtree0_luma ? ptree_luma->sub_tree[0]->sub_tree[0] : NULL);
     build_one_split_tree(
-        cm, tree_type, mi_row, mi_col + hbs_w, subsize, final_bsize,
+        cm, tree_type, mi_row, mi_col + hbs_w, subsize, final_bsize_local,
         ptree->sub_tree[0]->sub_tree[1],
         track_subtree0_luma ? ptree_luma->sub_tree[0]->sub_tree[1] : NULL);
     build_one_split_tree(
-        cm, tree_type, mi_row + hbs_h, mi_col, subsize, final_bsize,
+        cm, tree_type, mi_row + hbs_h, mi_col, subsize, final_bsize_local,
         ptree->sub_tree[1]->sub_tree[0],
         track_subtree1_luma ? ptree_luma->sub_tree[1]->sub_tree[0] : NULL);
     build_one_split_tree(
-        cm, tree_type, mi_row + hbs_h, mi_col + hbs_w, subsize, final_bsize,
-        ptree->sub_tree[1]->sub_tree[1],
+        cm, tree_type, mi_row + hbs_h, mi_col + hbs_w, subsize,
+        final_bsize_local, ptree->sub_tree[1]->sub_tree[1],
         track_subtree1_luma ? ptree_luma->sub_tree[1]->sub_tree[1] : NULL);
   } else {
     assert(first_partition == PARTITION_VERT);
     assert(second_partition == PARTITION_HORZ);
     build_one_split_tree(
-        cm, tree_type, mi_row, mi_col, subsize, final_bsize,
+        cm, tree_type, mi_row, mi_col, subsize, final_bsize_local,
         ptree->sub_tree[0]->sub_tree[0],
         track_subtree0_luma ? ptree_luma->sub_tree[0]->sub_tree[0] : NULL);
     build_one_split_tree(
-        cm, tree_type, mi_row + hbs_h, mi_col, subsize, final_bsize,
+        cm, tree_type, mi_row + hbs_h, mi_col, subsize, final_bsize_local,
         ptree->sub_tree[0]->sub_tree[1],
         track_subtree0_luma ? ptree_luma->sub_tree[0]->sub_tree[1] : NULL);
     build_one_split_tree(
-        cm, tree_type, mi_row, mi_col + hbs_w, subsize, final_bsize,
+        cm, tree_type, mi_row, mi_col + hbs_w, subsize, final_bsize_local,
         ptree->sub_tree[1]->sub_tree[0],
         track_subtree1_luma ? ptree_luma->sub_tree[1]->sub_tree[0] : NULL);
     build_one_split_tree(
-        cm, tree_type, mi_row + hbs_h, mi_col + hbs_w, subsize, final_bsize,
-        ptree->sub_tree[1]->sub_tree[1],
+        cm, tree_type, mi_row + hbs_h, mi_col + hbs_w, subsize,
+        final_bsize_local, ptree->sub_tree[1]->sub_tree[1],
         track_subtree1_luma ? ptree_luma->sub_tree[1]->sub_tree[1] : NULL);
   }
 }
