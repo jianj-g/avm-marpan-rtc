@@ -2548,6 +2548,208 @@ MI_SIZE
 * \param[in]    mi_col    Column coordinate of the block in a step size of
 MI_SIZE
 * \param[in]    bsize     Current block size
+* \param[in]    ptree     Pointer to the PARTITION_TREE node holding the
+pre-calculated partition tree (if any) for the current block
+* \param[in]    pc_tree   Pointer to the PC_TREE node holding the picked
+partitions and mode info for the current block
+* \param[in]    ptree_luma Pointer to the luma partition tree so that the
+*                          encoder can estimate the partition type for chroma.
+*
+* Nothing is returned. The pc_tree struct is modified to store the
+* picked partition and modes. The rate and dist are also updated with those
+* corresponding to the best partition found.
+*/
+void av2_nonrd_use_partition(AV2_COMP *cpi, ThreadData *td,
+                             TileDataEnc *tile_data, MB_MODE_INFO **mib,
+                             TokenExtra **tp, int mi_row, int mi_col,
+                             BLOCK_SIZE bsize, PARTITION_TREE *ptree,
+                             PC_TREE *pc_tree, PARTITION_TREE *ptree_luma) {
+  AV2_COMMON *const cm = &cpi->common;
+  const CommonModeInfoParams *const mi_params = &cm->mi_params;
+  const int num_planes = av2_num_planes(cm);
+  TileInfo *const tile_info = &tile_data->tile_info;
+  MACROBLOCK *const x = &td->mb;
+  MACROBLOCKD *const xd = &x->e_mbd;
+  const int ss_x = xd->plane[1].subsampling_x;
+  const int ss_y = xd->plane[1].subsampling_y;
+  assert(bsize < BLOCK_SIZES_ALL);
+  const int bs = mi_size_wide[bsize];
+  const int hbs = bs / 2;
+  const int hbh = mi_size_high[bsize] / 2;
+  const int hbw = mi_size_wide[bsize] / 2;
+  const PARTITION_TYPE partition =
+      get_preset_partition(cm, xd->tree_type, mi_row, mi_col, bsize, ptree);
+  const BLOCK_SIZE subsize = get_partition_subsize(bsize, partition);
+  RD_SEARCH_MACROBLOCK_CONTEXT x_ctx;
+  RD_STATS this_rdc, best_rdc;
+  int rate;
+  av2_invalid_rd_stats(&this_rdc);
+  av2_invalid_rd_stats(&best_rdc);
+
+  if (!frame_is_intra_only(cm))
+    pc_tree->region_type = MIXED_INTER_INTRA_REGION;
+  else
+    pc_tree->region_type = INTRA_REGION;
+  REGION_TYPE cur_region_type = pc_tree->region_type;
+  if (is_inter_sdp_chroma(cm, cur_region_type, x->e_mbd.tree_type)) {
+    if (pc_tree->none_chroma == NULL) {
+      pc_tree->none_chroma =
+          av2_alloc_pmc(cm, xd->tree_type, mi_row, mi_col, bsize, pc_tree,
+                        PARTITION_NONE, 0, ss_x, ss_y, &td->shared_coeff_buf);
+    }
+  } else {
+    if (pc_tree->none[cur_region_type] == NULL) {
+      pc_tree->none[cur_region_type] =
+          av2_alloc_pmc(cm, xd->tree_type, mi_row, mi_col, bsize, pc_tree,
+                        PARTITION_NONE, 0, ss_x, ss_y, &td->shared_coeff_buf);
+    }
+  }
+
+  PICK_MODE_CONTEXT *ctx_none =
+      is_inter_sdp_chroma(cm, cur_region_type, x->e_mbd.tree_type)
+          ? pc_tree->none_chroma
+          : pc_tree->none[pc_tree->region_type];
+
+  if (mi_row >= mi_params->mi_rows || mi_col >= mi_params->mi_cols) return;
+
+  pc_tree->partitioning = partition;
+
+  av2_save_context(x, &x_ctx, mi_row, mi_col, bsize, num_planes);
+
+  if (bsize == BLOCK_16X16 && cpi->vaq_refresh) {
+    av2_set_offsets(cpi, tile_info, x, mi_row, mi_col, bsize,
+                    &pc_tree->chroma_ref_info);
+    x->mb_energy = av2_log_block_var(cpi, x, bsize
+#if CONFIG_MIXED_LOSSLESS_ENCODE
+                                     ,
+                                     mi_row, mi_col
+#endif  // CONFIG_MIXED_LOSSLESS_ENCODE
+    );
+  }
+
+  if (bsize == cm->sb_size) {
+    if (pc_tree)
+      pc_tree->is_cfl_allowed_for_this_chroma = CFL_DISALLOWED_FOR_CHROMA;
+
+    xd->is_cfl_allowed_in_sdp =
+        is_cfl_allowed_for_sdp(cm, xd, ptree_luma, PARTITION_NONE, bsize);
+    ptree->is_cfl_allowed_for_this_chroma_partition = CFL_DISALLOWED_FOR_CHROMA;
+  }
+
+  if (partition == PARTITION_NONE) {
+    xd->is_cfl_allowed_in_sdp =
+        pc_tree->is_cfl_allowed_for_this_chroma |
+        ptree->is_cfl_allowed_for_this_chroma_partition |
+        is_cfl_allowed_for_sdp(cm, xd, ptree_luma, partition, bsize);
+
+  } else {
+    pc_tree->is_cfl_allowed_for_this_chroma =
+        ((pc_tree->parent) ? pc_tree->parent->is_cfl_allowed_for_this_chroma
+                           : 0) |
+        is_cfl_allowed_for_sdp(cm, xd, ptree_luma, partition, bsize);
+    ptree->is_cfl_allowed_for_this_chroma_partition = CFL_DISALLOWED_FOR_CHROMA;
+  }
+
+  switch (partition) {
+    case PARTITION_NONE:
+      pick_sb_modes(cpi, td, tile_data, x, mi_row, mi_col, &this_rdc,
+                    PARTITION_NONE, pc_tree->region_type,
+                    pc_tree->sb_root_partition_info, bsize, ctx_none, best_rdc);
+      encode_b(cpi, tile_data, td, tp, mi_row, mi_col, OUTPUT_ENABLED, subsize,
+               partition, ctx_none, &rate);
+      break;
+    case PARTITION_HORZ:
+      pc_tree->horizontal[cur_region_type][0] = av2_alloc_pc_tree_node(
+          xd->tree_type, mi_row, mi_col, cm->sb_size, subsize, pc_tree,
+          PARTITION_HORZ, 0, 0, ss_x, ss_y);
+      pc_tree->horizontal[cur_region_type][1] = av2_alloc_pc_tree_node(
+          xd->tree_type, mi_row + hbh, mi_col, cm->sb_size, subsize, pc_tree,
+          PARTITION_HORZ, 1, 1, ss_x, ss_y);
+
+      av2_nonrd_use_partition(cpi, td, tile_data, mib, tp, mi_row, mi_col,
+                              subsize, ptree ? ptree->sub_tree[0] : NULL,
+                              pc_tree->horizontal[cur_region_type][0],
+                              get_partition_subtree_const(ptree_luma, 0));
+      if (bsize >= BLOCK_8X8 && mi_row + hbs < mi_params->mi_rows) {
+        av2_nonrd_use_partition(
+            cpi, td, tile_data, mib + hbh * mi_params->mi_stride, tp,
+            mi_row + hbh, mi_col, subsize, ptree ? ptree->sub_tree[1] : NULL,
+            pc_tree->horizontal[cur_region_type][1],
+            get_partition_subtree_const(ptree_luma, 1));
+      }
+      break;
+    case PARTITION_VERT:
+      pc_tree->vertical[cur_region_type][0] = av2_alloc_pc_tree_node(
+          xd->tree_type, mi_row, mi_col, cm->sb_size, subsize, pc_tree,
+          PARTITION_VERT, 0, 0, ss_x, ss_y);
+      pc_tree->vertical[cur_region_type][1] = av2_alloc_pc_tree_node(
+          xd->tree_type, mi_row, mi_col + hbw, cm->sb_size, subsize, pc_tree,
+          PARTITION_VERT, 1, 1, ss_x, ss_y);
+      av2_nonrd_use_partition(cpi, td, tile_data, mib, tp, mi_row, mi_col,
+                              subsize, ptree ? ptree->sub_tree[0] : NULL,
+                              pc_tree->vertical[cur_region_type][0],
+                              get_partition_subtree_const(ptree_luma, 0));
+      if (bsize >= BLOCK_8X8 && mi_col + hbs < mi_params->mi_cols) {
+        av2_nonrd_use_partition(cpi, td, tile_data, mib + hbw, tp, mi_row,
+                                mi_col + hbw, subsize,
+                                ptree ? ptree->sub_tree[1] : NULL,
+                                pc_tree->vertical[cur_region_type][1],
+                                get_partition_subtree_const(ptree_luma, 1));
+      }
+      break;
+    case PARTITION_SPLIT:
+      for (int i = 0; i < SUB_PARTITIONS_SPLIT; i++) {
+        int x_idx = (i & 1) * hbs;
+        int y_idx = (i >> 1) * hbs;
+        int jj = i >> 1, ii = i & 0x01;
+        if ((mi_row + y_idx >= mi_params->mi_rows) ||
+            (mi_col + x_idx >= mi_params->mi_cols))
+          continue;
+        pc_tree->split[cur_region_type][i] = av2_alloc_pc_tree_node(
+            xd->tree_type, mi_row + y_idx, mi_col + x_idx, cm->sb_size, subsize,
+            pc_tree, PARTITION_SPLIT, i, i == 3, ss_x, ss_y);
+        av2_nonrd_use_partition(
+            cpi, td, tile_data,
+            mib + jj * hbs * mi_params->mi_stride + ii * hbs, tp,
+            mi_row + y_idx, mi_col + x_idx, subsize,
+            ptree ? ptree->sub_tree[i] : NULL,
+            pc_tree->split[cur_region_type][i],
+            get_partition_subtree_const(ptree_luma, i));
+      }
+      break;
+    case PARTITION_HORZ_4A:
+    case PARTITION_HORZ_4B:
+    case PARTITION_VERT_4A:
+    case PARTITION_VERT_4B:
+    case PARTITION_HORZ_3:
+    case PARTITION_VERT_3:
+      assert(0 && "Cannot handle extended partition types");
+    default: assert(0); break;
+  }
+}
+
+/*!\brief AV1 block partition search (partition estimation and partial search).
+>>>>>>> a56a6cd268 (Add 1-pass real-time rate control and frame setup)
+*
+* \ingroup partition_search
+* Encode the block by applying pre-calculated partition patterns that are
+* represented by coding block sizes stored in the mbmi array. Minor partition
+* adjustments are tested and applied if they lead to lower rd costs. The
+* partition types are limited to a basic set: none, horz, vert, and split.
+*
+* \param[in]    cpi       Top-level encoder structure
+* \param[in]    td        Pointer to thread data
+* \param[in]    tile_data Pointer to struct holding adaptive
+data/contexts/models for the tile during encoding
+* \param[in]    mib       Array representing MB_MODE_INFO pointers for mi
+blocks starting from the first pixel of the current
+block
+* \param[in]    tp        Pointer to the starting token
+* \param[in]    mi_row    Row coordinate of the block in a step size of
+MI_SIZE
+* \param[in]    mi_col    Column coordinate of the block in a step size of
+MI_SIZE
+* \param[in]    bsize     Current block size
 * \param[in]    rate      Pointer to the final rate for encoding the current
 block
 * \param[in]    dist      Pointer to the final distortion of the current block
